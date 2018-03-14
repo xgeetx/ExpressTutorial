@@ -1,1 +1,11 @@
 
+data/
+*.wt
+*.turtle
+*.lock
+data/WiredTiger
+data/sizeStorer.wt
+data/mongod.lock
+data/journal/WiredTigerLog.0000000002
+*.temp
+data/diagnostic.data/metrics.2018-03-09T21-09-02Z-00000

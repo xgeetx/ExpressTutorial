@@ -1,5 +1,5 @@
 {
-  "name": "express-locallibrary-tutorial",
+  "name": "expresstutorial",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -12,12 +12,13 @@
     "cookie-parser": "~1.4.3",
     "debug": "~2.6.9",
     "express": "~4.15.5",
+    "moment": "^2.21.0",
     "mongoose": "^5.0.7",
     "morgan": "~1.9.0",
     "pug": "2.0.0-beta11",
     "serve-favicon": "~2.4.5"
   },
   "devDependencies": {
-    "nodemon": "^1.17.1"
+    "nodemon": "^1.17.2"
   }
 }
