@@ -246,17 +246,32 @@ def get_session_narrative(extract: SessionExtract, graph: ActivityGraph) -> str:
 
     # Opening
     lines.append(f"Session: {extract.session_id}")
+    if extract.slug:
+        lines.append(f"Conversation: {extract.slug}")
     if extract.start_time:
         lines.append(f"Time: {extract.start_time} -> {extract.end_time}")
     if extract.cwd:
         lines.append(f"Working directory: {extract.cwd}")
     if extract.git_branch:
         lines.append(f"Branch: {extract.git_branch}")
+    if extract.segment_count > 1:
+        lines.append(f"Context segments: {extract.segment_count} (context was cleared {extract.segment_count - 1} time(s))")
     lines.append("")
 
     # User's goal
     if extract.user_query:
         lines.append(f"Initial request: {extract.user_query[:200]}")
+        lines.append("")
+
+    # Segment details (if multiple)
+    if extract.segment_count > 1:
+        lines.append("Context segments:")
+        for seg in extract.segments:
+            cont = " (continuation)" if seg.is_continuation else ""
+            query_preview = seg.user_query[:80] if seg.user_query else "(no query)"
+            lines.append(f"  Segment {seg.segment_index}{cont}: {query_preview}")
+            lines.append(f"    Time: {seg.start_time} -> {seg.end_time}")
+            lines.append(f"    Messages: {seg.message_count}, Tool calls: {seg.tool_call_count}")
         lines.append("")
 
     # Activity summary
@@ -304,6 +319,25 @@ def get_session_narrative(extract: SessionExtract, graph: ActivityGraph) -> str:
     # Topics
     if extract.topics:
         lines.append(f"Topics: {', '.join(extract.topics)}")
+        lines.append("")
+
+    # Token usage
+    usage = extract.total_usage
+    if usage.total_tokens > 0:
+        lines.append("Token usage:")
+        lines.append(f"  Input: {usage.input_tokens:,}")
+        lines.append(f"  Output: {usage.output_tokens:,}")
+        if usage.cache_creation_tokens:
+            lines.append(f"  Cache creation: {usage.cache_creation_tokens:,}")
+        if usage.cache_read_tokens:
+            lines.append(f"  Cache read: {usage.cache_read_tokens:,}")
+        lines.append(f"  Total: {usage.total_tokens:,}")
+        lines.append("")
+
+    # Models
+    if extract.models_used:
+        top_models = extract.models_used.most_common(3)
+        lines.append(f"Models: {', '.join(f'{m}({n})' for m, n in top_models)}")
         lines.append("")
 
     # Stats

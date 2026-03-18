@@ -27,7 +27,10 @@ class IndexEntry:
     files_touched: list[str]
     tools_used: dict[str, int]
     narrative: str
+    slug: str = ""
     summary: str = ""  # LLM summary if available
+    token_usage: dict = field(default_factory=dict)
+    models_used: dict = field(default_factory=dict)
     stats: dict = field(default_factory=dict)
     graph: dict = field(default_factory=dict)
     extract: dict = field(default_factory=dict)
@@ -58,6 +61,7 @@ class SessionIndex:
     def add(self, entry: IndexEntry):
         self._entries[entry.session_id] = {
             "session_id": entry.session_id,
+            "slug": entry.slug,
             "user_query": entry.user_query,
             "start_time": entry.start_time,
             "end_time": entry.end_time,
@@ -67,8 +71,10 @@ class SessionIndex:
             "keywords": entry.keywords,
             "files_touched": entry.files_touched,
             "tools_used": entry.tools_used,
+            "models_used": entry.models_used,
             "narrative": entry.narrative,
             "summary": entry.summary,
+            "token_usage": entry.token_usage,
             "stats": entry.stats,
             "graph": entry.graph,
             "extract": entry.extract,
@@ -96,6 +102,7 @@ class SessionIndex:
                 entry.get("narrative", ""),
                 " ".join(entry.get("files_touched", [])),
                 entry.get("git_branch", ""),
+                entry.get("slug", ""),
                 entry.get("summary", ""),
             ]).lower()
 

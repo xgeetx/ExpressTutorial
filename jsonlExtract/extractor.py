@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .parser import Message, Session, ToolUse, ToolResult
+from .parser import Message, Session, TokenUsage, ToolUse, ToolResult
 
 
 # --- Patterns for heuristic extraction ---
@@ -69,9 +69,24 @@ class UserIntent:
 
 
 @dataclass
+class SegmentSummary:
+    """Summary of a single context segment within a session."""
+    segment_index: int
+    session_id: str
+    is_continuation: bool
+    start_time: str = ""
+    end_time: str = ""
+    user_query: str = ""
+    message_count: int = 0
+    tool_call_count: int = 0
+    files_touched: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SessionExtract:
     """All heuristic-extracted information from a session."""
     session_id: str
+    slug: str
     user_query: str
     start_time: str
     end_time: str
@@ -87,6 +102,13 @@ class SessionExtract:
     tools_used: Counter = field(default_factory=Counter)
     urls_referenced: list[str] = field(default_factory=list)
     topics: list[str] = field(default_factory=list)
+    models_used: Counter = field(default_factory=Counter)
+
+    # Segments (context clears / continuations)
+    segments: list[SegmentSummary] = field(default_factory=list)
+
+    # Token usage
+    total_usage: TokenUsage = field(default_factory=TokenUsage)
 
     # Stats
     message_count: int = 0
@@ -94,6 +116,7 @@ class SessionExtract:
     assistant_message_count: int = 0
     tool_call_count: int = 0
     error_count: int = 0
+    segment_count: int = 0
 
 
 def extract_file_from_tool(tool: ToolUse) -> Optional[tuple[str, str]]:
@@ -259,12 +282,39 @@ def extract_session(session: Session) -> SessionExtract:
     """Run all heuristic extractors on a parsed session."""
     extract = SessionExtract(
         session_id=session.session_id,
+        slug=session.slug,
         user_query=session.user_query,
         start_time=session.start_time or "",
         end_time=session.end_time or "",
         cwd=session.cwd,
         git_branch=session.git_branch,
+        total_usage=session.total_usage,
+        segment_count=session.segment_count,
     )
+
+    # Build segment summaries
+    for seg in session.segments:
+        seg_files = []
+        seg_tool_count = 0
+        for msg in seg.messages:
+            if not msg.is_sidechain:
+                for tool in msg.tool_uses:
+                    seg_tool_count += 1
+                    fi = extract_file_from_tool(tool)
+                    if fi and fi[0].startswith("/"):
+                        seg_files.append(fi[0])
+
+        extract.segments.append(SegmentSummary(
+            segment_index=seg.segment_index,
+            session_id=seg.session_id,
+            is_continuation=seg.is_continuation,
+            start_time=seg.start_time or "",
+            end_time=seg.end_time or "",
+            user_query=seg.user_query,
+            message_count=len(seg.messages),
+            tool_call_count=seg_tool_count,
+            files_touched=list(dict.fromkeys(seg_files)),
+        ))
 
     result_map = build_tool_result_map(session.messages)
     all_text = []
@@ -290,6 +340,9 @@ def extract_session(session: Session) -> SessionExtract:
             extract.assistant_message_count += 1
             for text in msg.text_blocks:
                 all_text.append(text)
+            # Track model usage
+            if msg.model:
+                extract.models_used[msg.model] += 1
 
         # Process tool uses
         for tool in msg.tool_uses:
@@ -357,8 +410,10 @@ def extract_session(session: Session) -> SessionExtract:
 
 def extract_to_dict(extract: SessionExtract) -> dict:
     """Serialize a SessionExtract to a JSON-friendly dict."""
+    usage = extract.total_usage
     return {
         "session_id": extract.session_id,
+        "slug": extract.slug,
         "user_query": extract.user_query,
         "start_time": extract.start_time,
         "end_time": extract.end_time,
@@ -393,8 +448,30 @@ def extract_to_dict(extract: SessionExtract) -> dict:
             for e in extract.errors
         ],
         "tools_used": dict(extract.tools_used),
+        "models_used": dict(extract.models_used),
         "urls_referenced": extract.urls_referenced,
         "topics": extract.topics,
+        "segments": [
+            {
+                "segment_index": s.segment_index,
+                "session_id": s.session_id,
+                "is_continuation": s.is_continuation,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "user_query": s.user_query,
+                "message_count": s.message_count,
+                "tool_call_count": s.tool_call_count,
+                "files_touched": s.files_touched,
+            }
+            for s in extract.segments
+        ],
+        "token_usage": {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "cache_creation_tokens": usage.cache_creation_tokens,
+            "cache_read_tokens": usage.cache_read_tokens,
+            "total_tokens": usage.total_tokens,
+        },
         "stats": {
             "message_count": extract.message_count,
             "user_message_count": extract.user_message_count,
@@ -402,5 +479,6 @@ def extract_to_dict(extract: SessionExtract) -> dict:
             "tool_call_count": extract.tool_call_count,
             "error_count": extract.error_count,
             "files_touched": len(extract.files),
+            "segment_count": extract.segment_count,
         },
     }
