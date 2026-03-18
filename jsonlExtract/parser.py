@@ -99,6 +99,7 @@ class Session:
     version: str = ""
     user_query: str = ""  # First user message across all segments
     total_usage: TokenUsage = field(default_factory=TokenUsage)
+    compactions: list = field(default_factory=list)  # list[CompactionEvent]
 
     @property
     def messages(self) -> list[Message]:
@@ -187,17 +188,32 @@ def parse_content_blocks(content, timestamp: str, uuid: str):
     return text_blocks, tool_uses, tool_results, thinking_blocks
 
 
+@dataclass
+class CompactionEvent:
+    """A compaction boundary detected within a session file."""
+    record_index: int
+    trigger: str  # "auto" or "manual"
+    subtype: str  # "compact_boundary" or "microcompact_boundary"
+    pre_tokens: int = 0
+    timestamp: str = ""
+
+
 def _detect_segments(records: list[dict], file_session_id: str) -> list[tuple[int, str, bool]]:
     """
-    Detect context clear boundaries in a list of parsed JSONL records.
+    Detect context boundaries in a list of parsed JSONL records.
 
     Returns a list of (start_record_index, segment_session_id, is_continuation).
 
-    Detection strategy:
-    1. compact_boundary records explicitly mark segment boundaries.
-    2. A change in sessionId within the records indicates a continuation
-       prefix (records before the switch are from the parent session).
-    3. If neither is found, it's a single-segment session.
+    How context boundaries work in Claude Code:
+    - /clear: Creates a NEW JSONL file with a new session ID. No marker in
+      the old file. The only link is the shared slug. So within a single file,
+      you won't see /clear boundaries.
+    - Compaction (auto/manual): Writes a type="system" subtype="compact_boundary"
+      record IN the same file. Messages before the boundary were summarized
+      and the context window was reset. This is the main intra-file boundary.
+    - Microcompaction: Writes subtype="microcompact_boundary" for targeted
+      compaction of specific tool results. Less significant boundary.
+    - Plan mode transitions: NOT a context boundary — just a permission change.
     """
     boundaries = []
     seen_session_ids = []
@@ -205,8 +221,16 @@ def _detect_segments(records: list[dict], file_session_id: str) -> list[tuple[in
 
     for i, record in enumerate(records):
         record_type = record.get("type", "")
+        subtype = record.get("subtype", "")
 
-        # Explicit compact_boundary marker
+        # Compaction boundary (type="system", subtype="compact_boundary")
+        # This is the main intra-file context reset
+        if record_type == "system" and subtype == "compact_boundary":
+            sid = record.get("sessionId", file_session_id)
+            boundaries.append((i, sid, True))
+            continue
+
+        # Also detect if there's a raw "compact_boundary" type (older format)
         if record_type == "compact_boundary":
             sid = record.get("sessionId", file_session_id)
             boundaries.append((i, sid, True))
@@ -216,7 +240,8 @@ def _detect_segments(records: list[dict], file_session_id: str) -> list[tuple[in
         if not sid:
             continue
 
-        # Track session ID changes (continuation detection)
+        # Track session ID changes (continuation prefix detection)
+        # This happens when a continuation file starts with parent session records
         if sid != prev_session_id and prev_session_id is not None:
             if sid not in seen_session_ids:
                 boundaries.append((i, sid, True))
@@ -235,6 +260,28 @@ def _detect_segments(records: list[dict], file_session_id: str) -> list[tuple[in
         boundaries.insert(0, (0, first_sid, False))
 
     return boundaries
+
+
+def _detect_compactions(records: list[dict]) -> list[CompactionEvent]:
+    """Detect all compaction events in a session file."""
+    events = []
+    for i, record in enumerate(records):
+        record_type = record.get("type", "")
+        subtype = record.get("subtype", "")
+
+        if record_type == "system" and subtype in ("compact_boundary", "microcompact_boundary"):
+            metadata = (record.get("compact_metadata", {})
+                        or record.get("compactMetadata", {})
+                        or record.get("microcompactMetadata", {}))
+            events.append(CompactionEvent(
+                record_index=i,
+                trigger=metadata.get("trigger", "unknown"),
+                subtype=subtype,
+                pre_tokens=metadata.get("preTokens", 0),
+                timestamp=record.get("timestamp", ""),
+            ))
+
+    return events
 
 
 def parse_jsonl_file(filepath: str | Path) -> Session:
@@ -266,8 +313,9 @@ def parse_jsonl_file(filepath: str | Path) -> Session:
             slug = s
             break
 
-    # Detect segment boundaries
+    # Detect segment boundaries and compaction events
     seg_boundaries = _detect_segments(records, file_session_id)
+    compactions = _detect_compactions(records)
 
     session = Session(session_id=file_session_id, slug=slug)
     total_usage = TokenUsage()
@@ -371,6 +419,7 @@ def parse_jsonl_file(filepath: str | Path) -> Session:
             break
 
     session.total_usage = total_usage
+    session.compactions = compactions
     return session
 
 

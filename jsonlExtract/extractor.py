@@ -104,11 +104,14 @@ class SessionExtract:
     topics: list[str] = field(default_factory=list)
     models_used: Counter = field(default_factory=Counter)
 
-    # Segments (context clears / continuations)
+    # Segments (compaction boundaries within a file)
     segments: list[SegmentSummary] = field(default_factory=list)
 
     # Token usage
     total_usage: TokenUsage = field(default_factory=TokenUsage)
+
+    # Compaction events
+    compaction_count: int = 0
 
     # Stats
     message_count: int = 0
@@ -290,6 +293,7 @@ def extract_session(session: Session) -> SessionExtract:
         git_branch=session.git_branch,
         total_usage=session.total_usage,
         segment_count=session.segment_count,
+        compaction_count=len(session.compactions),
     )
 
     # Build segment summaries
@@ -480,5 +484,6 @@ def extract_to_dict(extract: SessionExtract) -> dict:
             "error_count": extract.error_count,
             "files_touched": len(extract.files),
             "segment_count": extract.segment_count,
+            "compaction_count": extract.compaction_count,
         },
     }

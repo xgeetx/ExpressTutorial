@@ -255,7 +255,9 @@ def get_session_narrative(extract: SessionExtract, graph: ActivityGraph) -> str:
     if extract.git_branch:
         lines.append(f"Branch: {extract.git_branch}")
     if extract.segment_count > 1:
-        lines.append(f"Context segments: {extract.segment_count} (context was cleared {extract.segment_count - 1} time(s))")
+        lines.append(f"Context segments: {extract.segment_count} (compacted {extract.segment_count - 1} time(s))")
+    if extract.compaction_count > 0:
+        lines.append(f"Compactions: {extract.compaction_count}")
     lines.append("")
 
     # User's goal
@@ -263,11 +265,11 @@ def get_session_narrative(extract: SessionExtract, graph: ActivityGraph) -> str:
         lines.append(f"Initial request: {extract.user_query[:200]}")
         lines.append("")
 
-    # Segment details (if multiple)
+    # Segment details (if multiple — from compaction, not /clear)
     if extract.segment_count > 1:
-        lines.append("Context segments:")
+        lines.append("Context segments (compaction boundaries):")
         for seg in extract.segments:
-            cont = " (continuation)" if seg.is_continuation else ""
+            cont = " (post-compaction)" if seg.is_continuation else ""
             query_preview = seg.user_query[:80] if seg.user_query else "(no query)"
             lines.append(f"  Segment {seg.segment_index}{cont}: {query_preview}")
             lines.append(f"    Time: {seg.start_time} -> {seg.end_time}")

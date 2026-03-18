@@ -106,7 +106,9 @@ def cmd_scan(args):
         print(f"    Branch:   {session.git_branch or 'unknown'}")
         print(f"    Messages: {msg_count}")
         if session.segment_count > 1:
-            print(f"    Segments: {session.segment_count} (context cleared {session.segment_count - 1}x)")
+            print(f"    Segments: {session.segment_count} (compacted {session.segment_count - 1}x)")
+        if session.compactions:
+            print(f"    Compactions: {len(session.compactions)} ({', '.join(c.trigger for c in session.compactions)})")
         if usage.total_tokens > 0:
             print(f"    Tokens:   {usage.total_tokens:,} (in:{usage.input_tokens:,} out:{usage.output_tokens:,} cache:{usage.cache_read_tokens:,})")
         print(f"    Query:    {query_preview}")
